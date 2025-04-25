@@ -6,6 +6,8 @@ LGFX tft;  // unser Displayobjekt
 // Canvas Buffer    // Canvas-Puffer
 LGFX_Sprite* Canvas;
 
+Accessory accessory(Wire1); // Accessory-Objekt erstellen
+
 void setup()
 {
   // Initialize Serial Monitor    // Serial Monitor initialisieren
@@ -15,6 +17,10 @@ void setup()
   Serial.println("[INFO] Joystick Kalibrieren...");
   Serial.println("[INFO] Den Joystick loslassen bevor das Programm gestartet wird.");
   Serial.println("[INFO] Nach dem Start den Joystick in alle Richtungen bewegen");
+
+  Wire1.begin();
+  delay(500);
+  accessory.begin();
 
   // Speicher reservieren
   snake = (Segment*)malloc(sizeof(Segment) * snake_size);
@@ -43,16 +49,60 @@ void setup()
   Canvas->setRotation(tft.getRotation());
 
   // Initialize Joystick    // Joystick initialisieren
-  pinMode(PIN_JOY_X, INPUT);
-  pinMode(PIN_JOY_Y, INPUT);
 
-  joyXMin = analogRead(PIN_JOY_X) - 50;
-  joyXMax = analogRead(PIN_JOY_X) + 50;
-  joyXCenter = analogRead(PIN_JOY_X);
+  if (Wire1.requestFrom(0x52, 1))
+  {
+    wiichuck = true;// WiiChuck available  // Joystick ist vorhanden
+    Serial.println("[INFO] WiiChuck gefunden!");
+    if (accessory.type == WIICLASSIC)
+    {
+      accessory.readData(); // Daten vom Joystick lesen
+      joy_x = accessory.getJoyXLeft();
+      joy_y = accessory.getJoyYLeft();
 
-  joyYMin = analogRead(PIN_JOY_Y) - 50;
-  joyYMax = analogRead(PIN_JOY_Y) + 50;
-  joyYCenter = analogRead(PIN_JOY_Y);
+      joyXMin = accessory.getJoyXLeft() - 10;
+      joyXMax = accessory.getJoyXLeft() + 10;
+      joyXCenter = accessory.getJoyXLeft();
+
+      joyYMin = accessory.getJoyYLeft() - 10;
+      joyYMax = accessory.getJoyYLeft() + 10;
+      joyYCenter = accessory.getJoyYLeft();
+    }
+    else if (accessory.type == NUNCHUCK)
+    {
+      accessory.readData(); // Daten vom Joystick lesen
+      joy_x = accessory.getJoyX();
+      joy_y = accessory.getJoyY();
+
+      joyXMin = accessory.getJoyX() - 10;
+      joyXMax = accessory.getJoyX() + 10;
+      joyXCenter = accessory.getJoyX();
+
+      joyYMin = accessory.getJoyY() - 10;
+      joyYMax = accessory.getJoyY() + 10;
+      joyYCenter = accessory.getJoyY();
+    }
+  }
+  else
+  {
+    Serial.println("[INFO] WiiChuck nicht gefunden!"); // Joystick nicht gefunden
+    wiichuck = false; // WiiChuck not available    // WiiChuck ist nicht vorhanden
+    Wire1.end(); // Beende den I2C-Bus
+
+    pinMode(PIN_JOY_X, INPUT);
+    pinMode(PIN_JOY_Y, INPUT);
+
+    joy_x = analogRead(PIN_JOY_X);
+    joy_y = analogRead(PIN_JOY_Y);
+
+    joyXMin = analogRead(PIN_JOY_X) - 10;
+    joyXMax = analogRead(PIN_JOY_X) + 10;
+    joyXCenter = analogRead(PIN_JOY_X);
+
+    joyYMin = analogRead(PIN_JOY_Y) - 10;
+    joyYMax = analogRead(PIN_JOY_Y) + 10;
+    joyYCenter = analogRead(PIN_JOY_Y);
+  }
 
   // Initialize Game variables    // Spielvariablen initialisieren
   resetGame();
@@ -60,37 +110,80 @@ void setup()
 
 void loop()
 {
-  // Joystick calibration    // Joystick Kalibrierung
-  joy_x = analogRead(PIN_JOY_X);
-  joy_y = analogRead(PIN_JOY_Y);
+  handleJoyStick();
 
+  if (millis() - lastMoveTime >= timeInterval) {
+    lastMoveTime = millis();
+    moveSnake();  // Deine Snake-Logik
+  }
+  drawGame();
+}
+
+void handleJoyStick()
+{
+  // read joystick data     // Joystick-Daten lesen
+  if (wiichuck)
+  {
+    if (accessory.type == WIICLASSIC)
+    {
+      accessory.readData(); // Daten vom Joystick lesen
+      joy_x = accessory.getJoyXLeft();
+      joy_y = accessory.getJoyYLeft();
+    }
+    else if (accessory.type == NUNCHUCK)
+    {
+      accessory.readData(); // Daten vom Joystick lesen
+      joy_x = accessory.getJoyX();
+      joy_y = accessory.getJoyY();
+    }
+  }
+  else
+  {
+    joy_x = analogRead(PIN_JOY_X);
+    joy_y = analogRead(PIN_JOY_Y);
+  }
+  
   //Serial.print(joy_x);
   //Serial.print(",");
   //Serial.println(joy_y);
 
+  // Joystick calibration    // Joystick Kalibrierung
   if (joy_x < joyXMin) joyXMin = joy_x;
   if (joy_x > joyXMax) joyXMax = joy_x;
   if (joy_y < joyYMin) joyYMin = joy_y;
   if (joy_y > joyYMax) joyYMax = joy_y;
   
-  joy_x = customMap(joy_x, joyXMin, joyXCenter, joyXMax, -100, 100);
-  joy_y = customMap(joy_y, joyYMin, joyYCenter, joyYMax, -100, 100);
+  joy_x = customMap(joy_x, joyXMin, joyXCenter, joyXMax, -127, 127);
+  joy_y = customMap(joy_y, joyYMin, joyYCenter, joyYMax, -127, 127);
 
-  Serial.print(joy_x);
-  Serial.print(",");
-  Serial.println(joy_y);
+  //Serial.print(joy_x);
+  //Serial.print(",");
+  //Serial.println(joy_y);
 
   // Joystick movement    // Joystick Bewegung
-  if (snake_direction == snake_next_direction)
+  // 0: up | 1: right | 2: down | 3: left
+  if (wiichuck)
   {
-    if (joy_x < -75) snake_next_direction = 0; // up
-    else if (joy_x > 75) snake_next_direction = 2; // down
-    else if (joy_y < -75) snake_next_direction = 3; // left
-    else if (joy_y > 75) snake_next_direction = 1; // right
+    if (snake_direction == snake_next_direction)
+    {
+      if (joy_x < -75) snake_next_direction = 3; // up
+      else if (joy_x > 75) snake_next_direction = 1; // down
+      else if (joy_y < -75) snake_next_direction = 2; // left
+      else if (joy_y > 75) snake_next_direction = 0; // right
+    }
+  } else {
+    if (snake_direction == snake_next_direction)
+    {
+      if (joy_x < -75) snake_next_direction = 0; // up
+      else if (joy_x > 75) snake_next_direction = 2; // down
+      else if (joy_y < -75) snake_next_direction = 3; // left
+      else if (joy_y > 75) snake_next_direction = 1; // right
+    }
   }
+}
 
-  // 3: left | 1: right | 0: up | 2: down
-
+void moveSnake()
+{
   // Snake direction change    // Snake Richtungswechsel
   if (snake_next_direction != snake_direction)
   {
@@ -127,22 +220,22 @@ void loop()
     if (snake[i].x < snake[i].x_next) 
     {
       snake[i].x += snake_speed;
-      if (snake[i].x > snake[i].x_next) snake[i].x = snake[i].x_next;  // Korrektur!
+      if (snake[i].x > snake[i].x_next) snake[i].x = snake[i].x_next;
     }
     if (snake[i].x > snake[i].x_next) 
     {
       snake[i].x -= snake_speed;
-      if (snake[i].x < snake[i].x_next) snake[i].x = snake[i].x_next;  // Korrektur!
+      if (snake[i].x < snake[i].x_next) snake[i].x = snake[i].x_next;
     }
     if (snake[i].y < snake[i].y_next) 
     {
       snake[i].y += snake_speed;
-      if (snake[i].y > snake[i].y_next) snake[i].y = snake[i].y_next;  // Korrektur!
+      if (snake[i].y > snake[i].y_next) snake[i].y = snake[i].y_next;
     }
     if (snake[i].y > snake[i].y_next) 
     {
       snake[i].y -= snake_speed;
-      if (snake[i].y < snake[i].y_next) snake[i].y = snake[i].y_next;  // Korrektur!
+      if (snake[i].y < snake[i].y_next) snake[i].y = snake[i].y_next;
     }
   }
 
@@ -166,8 +259,55 @@ void loop()
       resetGame();
     }
   }
+}
 
-  drawGame();
+void growSnake()
+{
+  score++;
+  snake_lenght++;
+
+  if (snake_lenght >= snake_size)  // Falls Speicher voll
+  {
+      snake_size += 10;  // Erhöhe um 10 Segmente
+      snake = (Segment*)realloc(snake, sizeof(Segment) * snake_size);
+      if (!snake)
+      {
+          Serial.println("[ERROR] Speicherzuweisung fehlgeschlagen!");
+          while (1);
+      }
+  }
+
+  snake[snake_lenght - 1].x = snake[snake_lenght - 2].x;
+  snake[snake_lenght - 1].y = snake[snake_lenght - 2].y;
+  snake[snake_lenght - 1].x_next = snake[snake_lenght - 2].x_next;
+  snake[snake_lenght - 1].y_next = snake[snake_lenght - 2].y_next;
+
+  food.x_next = random(0, grid_w) * grid_size + grid_x_offset;
+  food.y_next = random(0, grid_h) * grid_size + grid_y_offset;
+
+  for (int i = snake_lenght - 1; i > 0; i--)
+  {
+    if (food.x_next == snake[i].x_next && food.y_next == snake[i].y_next)
+    {
+      food.x_next = random(0, grid_w) * grid_size + grid_x_offset;
+      food.y_next = random(0, grid_h) * grid_size + grid_y_offset;
+      i = snake_lenght - 1; // Restart loop
+    } else {
+      // Nur wenn es nicht mit dem Snake Körper kollidiert
+      food.x = food.x_next; 
+      food.y = food.y_next;
+    }
+  }
+
+  timeInterval = getIntervalForScore(score);
+
+  if (score == 100) {
+    snake_speed = 2; // Snake speed increase
+  }
+  Serial.print("[INFO] Snake speed: ");
+  Serial.println(snake_speed);
+  Serial.print("[INFO] Snake timeInterval: ");
+  Serial.println(timeInterval);
 }
 
 void drawGame()
@@ -226,6 +366,7 @@ void resetGame()
   snake_next_direction = snake_direction; // 0: up, 1: right, 2: down, 3: left
   snake_lenght = 4;                       // Snake Länge
   snake_speed = 1;                        // Snake Geschwindigkeit
+  timeInterval = 25;
 
   for (int i = 0; i < snake_lenght; i++)
   {
@@ -251,46 +392,11 @@ void resetGame()
   food.size = grid_size / 2;
 }
 
-void growSnake()
+uint8_t getIntervalForScore(uint16_t score) 
 {
-  score++;
-  snake_lenght++;
-
-  if (snake_lenght >= snake_size)  // Falls Speicher voll
-  {
-      snake_size += 10;  // Erhöhe um 10 Segmente
-      snake = (Segment*)realloc(snake, sizeof(Segment) * snake_size);
-      if (!snake)
-      {
-          Serial.println("[ERROR] Speicherzuweisung fehlgeschlagen!");
-          while (1);
-      }
-  }
-
-  snake[snake_lenght - 1].x = snake[snake_lenght - 2].x;
-  snake[snake_lenght - 1].y = snake[snake_lenght - 2].y;
-  snake[snake_lenght - 1].x_next = snake[snake_lenght - 2].x_next;
-  snake[snake_lenght - 1].y_next = snake[snake_lenght - 2].y_next;
-
-  food.x_next = random(0, grid_w) * grid_size + grid_x_offset;
-  food.y_next = random(0, grid_h) * grid_size + grid_y_offset;
-
-  for (int i = snake_lenght - 1; i > 0; i--)
-  {
-    if (food.x_next == snake[i].x_next && food.y_next == snake[i].y_next)
-    {
-      food.x_next = random(0, grid_w) * grid_size + grid_x_offset;
-      food.y_next = random(0, grid_h) * grid_size + grid_y_offset;
-      i = snake_lenght - 1; // Restart loop
-    } else {
-      // Nur wenn es nicht mit dem Snake Körper kollidiert
-      food.x = food.x_next; 
-      food.y = food.y_next;
-    }
-  }
-
-  if (score % 25 == 0) snake_speed++; // Alle 5 Punkte Geschwindigkeit erhöhen
-  if (snake_speed > grid_size / 2) snake_speed = grid_size / 2; // Max. Geschwindigkeit = halbe Grid-Größe
+  uint8_t index = score / 10;  // alle 10 Punkte schneller
+  if (index >= sizeof(intervalTable)) index = sizeof(intervalTable) - 1;
+  return intervalTable[index];
 }
 
 float customMap(long x, long in_min, long in_center, long in_max, long out_min, long out_max)

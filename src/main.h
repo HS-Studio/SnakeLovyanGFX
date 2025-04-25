@@ -6,6 +6,9 @@
 #include <Adafruit_ST7789.h>
 #include "LGFX_SPI_ST7789.h"
 
+#include <Wire.h>
+#include <WiiChuck.h>
+
 // Konfiguration für den ST7789-Bildschirm
 #define SCREEN_W  240
 #define SCREEN_H  280
@@ -17,6 +20,8 @@
 // Joystick variables
 #define PIN_JOY_X A0
 #define PIN_JOY_Y A1
+
+bool wiichuck;
 
 uint16_t joyXMin, joyXMax, joyXCenter, joyYMin, joyYMax, joyYCenter;
 int16_t joy_x, joy_y;
@@ -61,10 +66,26 @@ uint8_t snake_lenght = 4; // Anfangslänge
 
 Segment food;
 
+unsigned long lastMoveTime = 0;
+unsigned long timeInterval = 25;  // Start: alle 200 ms ein Schritt
+
+const uint8_t intervalTable[] = 
+  {
+    25, // Score  0-9
+    23, // Score  10-19
+    21, // Score  20-29
+    19, // Score  30-39
+    17, // Score  40-49
+    16, // Score  50+
+  };
+
 // Functions
+void handleJoyStick();
+void moveSnake();
 void growSnake();
 void drawGame();
 void resetGame();
+uint8_t getIntervalForScore(uint16_t score);
 float customMap(long x, long in_min, long in_center, long in_max, long out_min, long out_max);
 
 #endif
