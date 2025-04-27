@@ -17,6 +17,19 @@ void setup()
   Serial.println("[INFO] Joystick Kalibrieren...");
   Serial.println("[INFO] Den Joystick loslassen bevor das Programm gestartet wird.");
   Serial.println("[INFO] Nach dem Start den Joystick in alle Richtungen bewegen");
+  Serial.println();
+
+  Serial.println("[INFO] Joystick calibration...");
+  Serial.println("[INFO] Release the joystick before starting the program.");
+  Serial.println("[INFO] After starting, move the joystick in all directions.");
+  Serial.println();
+
+  if (!LittleFS.begin()) {
+    Serial.println("Fehler beim Starten von LittleFS!");
+    while (1);
+  } else {
+    Serial.println("LittleFS erfolgreich gestartet!");
+  }
 
   Wire1.begin();
   delay(500);
@@ -304,50 +317,35 @@ void growSnake()
   if (score == 100) {
     snake_speed = 2; // Snake speed increase
   }
-  Serial.print("[INFO] Snake speed: ");
-  Serial.println(snake_speed);
-  Serial.print("[INFO] Snake timeInterval: ");
-  Serial.println(timeInterval);
 }
 
 void drawGame()
 {
-  Canvas->fillScreen(TFT_BLACK);
+  Canvas->clear(TFT_BLACK);
 
-  // Gitter zeichnen    // Draw grid    macht das Spiel sehr langsam
-  /*
-  for (int i = 0; i < grid_w ; i++)
-  {
-    for (int j = 0; j < grid_h; j++)
-    {
-      int x = i * grid_size + grid_x_offset - grid_size / 2 +1;
-      int y = j * grid_size + grid_y_offset - grid_size / 2 +1;
-      if (j % 2 == 0)
-      {
-        if (i % 2 == 0) Canvas->fillRect(x, y, grid_size, grid_size, 0x558A); // Gitter zeichnen
-        else Canvas->fillRect(x, y, grid_size, grid_size, 0x4428); // Gitter zeichnen
-      }
-      else
-      {
-        if (i % 2 == 0) Canvas->fillRect(x, y, grid_size, grid_size, 0x4428); // Gitter zeichnen
-        else Canvas->fillRect(x, y, grid_size, grid_size, 0x558A); // Gitter zeichnen
-      }
-    }
-  }
-  */
+  //pushRawToSpriteBuffered(*Canvas, "/snake_bg.raw", grid_x_offset - grid_size / 2 -1, grid_y_offset - grid_size / 2 -1, 230, 230);
 
   // Rahmen zeichnen    // Draw border
   Canvas->drawRoundRect(grid_x_offset - grid_size / 2 -1, grid_y_offset - grid_size / 2-1, grid_w * grid_size + 2, grid_h * grid_size + 2, 10, TFT_WHITE); // Rahmen zeichnen
   
+  // Food zeichnen    // Draw food
+  Canvas->fillCircle(food.x, food.y, food.size, food_color);
   
   // Snake zeichnen    // Draw snake
   for (int i = 0; i < snake_lenght; i++)
   {
-    Canvas->fillCircle(snake[i].x, snake[i].y, snake[0].size, snake_color);
+    if (i == 0) // Kopf
+    {
+      Canvas->fillCircle(snake[i].x, snake[i].y, snake[0].size+1, snake_color_head); // Kopf
+    }
+    else
+    {
+      Canvas->fillCircle(snake[i].x, snake[i].y, snake[0].size, snake_color);
+    }
     //Canvas->fillCircle(snake[i].x_next, snake[i].y_next, 3, TFT_RED);
   }
-  // Food zeichnen    // Draw food
-  Canvas->fillCircle(food.x, food.y, food.size, food_color);
+
+
 
   // Score zeichnen    // Draw score
   Canvas->setTextColor(TFT_WHITE);
@@ -384,7 +382,7 @@ void resetGame()
       snake[i].y_next = snake[i - 1].y;
     }
 
-    snake[i].size = grid_size / 2;
+    snake[i].size = 5;
   }
 
   food.x = random(0, grid_w) * grid_size + grid_x_offset;
@@ -409,4 +407,162 @@ float customMap(long x, long in_min, long in_center, long in_max, long out_min, 
   {
     return (float)(x - in_center) / (in_max - in_center) * (out_max); // Skalierung für den Bereich rechts vom Mittelpunkt
   }
+}
+
+bool drawRawFile(LGFX& lcd, const char* path, int32_t x, int32_t y, int32_t w, int32_t h)
+{
+  File file = LittleFS.open(path, "r");
+  if (!file || file.isDirectory())
+  {
+    Serial.println("[Fehler] Datei konnte nicht geöffnet werden!");
+    return false;
+  }
+
+  uint16_t* buffer = (uint16_t*) malloc(w * h * sizeof(uint16_t));
+  if (!buffer)
+  {
+    Serial.println("[Fehler] Speicherzuweisung fehlgeschlagen!");
+    file.close();
+    return false;
+  }
+
+  if (file.read((uint8_t*)buffer, w * h * 2) != (w * h * 2))
+  {
+    Serial.println("[Fehler] Lesen der Datei fehlgeschlagen!");
+    free(buffer);
+    file.close();
+    return false;
+  }
+
+  lcd.pushImage(x, y, w, h, buffer);
+
+  free(buffer);
+  file.close();
+  return true;
+}
+
+bool drawRawFileBuffered(LGFX& lcd, const char* path, int32_t x, int32_t y, int32_t w, int32_t h)
+{
+  File file = LittleFS.open(path, "r");
+  if (!file || file.isDirectory())
+  {
+    Serial.println("[Fehler] Datei konnte nicht geöffnet werden!");
+    return false;
+  }
+
+  const int linesPerBuffer = RAW_BUFFER_LINES;
+  const int bufferSize = w * linesPerBuffer; // w = Pixel pro Zeile
+  uint16_t* buffer = (uint16_t*) malloc(bufferSize * sizeof(uint16_t));
+  if (!buffer)
+  {
+    Serial.println("[Fehler] RAM-Allocation fehlgeschlagen!");
+    file.close();
+    return false;
+  }
+
+  int linesDrawn = 0;
+  while (linesDrawn < h)
+  {
+    int linesToRead = linesPerBuffer;
+    if ((linesDrawn + linesToRead) > h)
+    {
+      linesToRead = h - linesDrawn; // Nicht über das Ende lesen
+    }
+
+    size_t bytesToRead = w * linesToRead * 2; // 2 Bytes pro Pixel
+    if (file.read((uint8_t*)buffer, bytesToRead) != bytesToRead)
+    {
+      Serial.println("[Fehler] Lesen der Datei fehlgeschlagen!");
+      free(buffer);
+      file.close();
+      return false;
+    }
+
+    lcd.pushImage(x, y + linesDrawn, w, linesToRead, buffer);
+    linesDrawn += linesToRead;
+  }
+
+  free(buffer);
+  file.close();
+  return true;
+}
+
+bool pushRawToSpriteBuffered(LGFX_Sprite& sprite, const char* path, int32_t x, int32_t y, int32_t w, int32_t h)
+{
+  File file = LittleFS.open(path, "r");
+  if (!file || file.isDirectory())
+  {
+    Serial.println("[Fehler] Datei konnte nicht geöffnet werden!");
+    return false;
+  }
+
+  const int linesPerBuffer = RAW_BUFFER_LINES;
+  const int bufferSize = w * linesPerBuffer; // w = Pixel pro Zeile
+  uint16_t* buffer = (uint16_t*) malloc(bufferSize * sizeof(uint16_t));
+  if (!buffer)
+  {
+    Serial.println("[Fehler] RAM-Allocation fehlgeschlagen!");
+    file.close();
+    return false;
+  }
+
+  int linesDrawn = 0;
+  while (linesDrawn < h)
+  {
+    int linesToRead = linesPerBuffer;
+    if ((linesDrawn + linesToRead) > h)
+    {
+      linesToRead = h - linesDrawn; // Nicht über das Ende lesen
+    }
+
+    size_t bytesToRead = w * linesToRead * 2; // 2 Bytes pro Pixel
+    if (file.read((uint8_t*)buffer, bytesToRead) != bytesToRead)
+    {
+      Serial.println("[Fehler] Lesen der Datei fehlgeschlagen!");
+      free(buffer);
+      file.close();
+      return false;
+    }
+
+    sprite.pushImage(x, y + linesDrawn, w, linesToRead, buffer);
+    linesDrawn += linesToRead;
+  }
+
+  free(buffer);
+  file.close();
+  return true;
+}
+
+bool pushRawToSprite(LGFX_Sprite& sprite, const char* path, int32_t x, int32_t y, int32_t w, int32_t h)
+{
+  File file = LittleFS.open(path, "r");
+  if (!file || file.isDirectory())
+  {
+    Serial.println("[Fehler] Datei konnte nicht geöffnet werden!");
+    return false;
+  }
+
+  uint16_t* buffer = (uint16_t*) malloc(w * h * sizeof(uint16_t));
+  if (!buffer)
+  {
+    Serial.println("[Fehler] Speicherzuweisung fehlgeschlagen!");
+    file.close();
+    return false;
+  }
+
+  if (file.read((uint8_t*)buffer, w * h * 2) != (w * h * 2))
+  {
+    Serial.println("[Fehler] Lesen der Datei fehlgeschlagen!");
+    free(buffer);
+    file.close();
+    return false;
+  }
+
+  //lcd.pushImage(x, y, w, h, buffer);
+  
+  sprite.pushImage(x, y, w, h, buffer);
+
+  free(buffer);
+  file.close();
+  return true;
 }

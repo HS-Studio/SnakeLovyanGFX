@@ -4,10 +4,18 @@
 
 #include <Arduino.h>
 #include <Adafruit_ST7789.h>
+#include <stdio.h>
 #include "LGFX_SPI_ST7789.h"
+
+#include <FS.h>
+#include <LittleFS.h>
+
+#include "snake_bg.h"
 
 #include <Wire.h>
 #include <WiiChuck.h>
+
+#define RAW_BUFFER_LINES 140
 
 // Konfiguration für den ST7789-Bildschirm
 #define SCREEN_W  240
@@ -27,25 +35,26 @@ uint16_t joyXMin, joyXMax, joyXCenter, joyYMin, joyYMax, joyYCenter;
 int16_t joy_x, joy_y;
 
 // Canvas-Größe
-uint16_t screen_w = 240;
-uint16_t screen_h = 280;
+static uint16_t screen_w = 240;
+static uint16_t screen_h = 280;
 
-uint16_t canv_w = screen_w;
-uint16_t canv_h = screen_h;
+static uint16_t canv_w = screen_w;
+static uint16_t canv_h = screen_h;
 
 extern LGFX tft;
 extern LGFX_Sprite* Canvas;
 
 // Game variables
 uint8_t score;
-uint16_t snake_color = ST77XX_GREEN;
-uint16_t food_color = ST77XX_ORANGE;
+static uint16_t snake_color = ST77XX_GREEN;
+static uint16_t snake_color_head = ST77XX_YELLOW;
+static uint16_t food_color = ST77XX_ORANGE;
 
 uint16_t grid_size = 12; // Größe der Zellen in Pixel
-uint16_t grid_w = 18; // Anzahl der Zellen in der Breite
+uint16_t grid_w = 19; // Anzahl der Zellen in der Breite
 uint16_t grid_h = 19; // Anzahl der Zellen in der Höhe
-uint8_t grid_x_offset = (screen_w - (grid_w * grid_size)) / 2 + (grid_size / 2); // Offset für die X-Achse in Pixel
-uint8_t grid_y_offset = grid_size * 4; // Offset für die Y-Achse in Pixel
+uint8_t grid_x_offset = (screen_w - (grid_w * grid_size)) / 2 + (grid_size / 2); // Horizontal zentriert
+uint8_t grid_y_offset = grid_size * 3; // Offset für die Y-Achse in Pixel
 
 struct Segment
 {
@@ -88,4 +97,8 @@ void resetGame();
 uint8_t getIntervalForScore(uint16_t score);
 float customMap(long x, long in_min, long in_center, long in_max, long out_min, long out_max);
 
+bool drawRawFile(LGFX& lcd, const char* path, int32_t x, int32_t y, int32_t w, int32_t h);
+bool pushRawToSprite(LGFX_Sprite& sprite, const char* path, int32_t x, int32_t y, int32_t w, int32_t h);
+bool drawRawFileBuffered(LGFX& lcd, const char* path, int32_t x, int32_t y, int32_t w, int32_t h);
+bool pushRawToSpriteBuffered(LGFX_Sprite& sprite, const char* path, int32_t x, int32_t y, int32_t w, int32_t h);
 #endif
